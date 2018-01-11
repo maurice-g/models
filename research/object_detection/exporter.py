@@ -16,6 +16,7 @@
 """Functions to export object detection inference graph."""
 import os
 import tempfile
+import operator
 import tensorflow as tf
 from tensorflow.contrib.quantize.python import graph_matcher
 from tensorflow.core.protobuf import saver_pb2
@@ -30,6 +31,7 @@ from object_detection.core import standard_fields as fields
 from object_detection.data_decoders import tf_example_decoder
 from object_detection.utils import config_util
 from object_detection.utils import shape_utils
+from object_detection.utils.label_map_util import get_label_map_dict, load_labelmap
 
 slim = tf.contrib.slim
 
@@ -209,6 +211,7 @@ def add_output_tensor_nodes(postprocessed_tensors,
   scores = postprocessed_tensors.get(detection_fields.detection_scores)
   classes = postprocessed_tensors.get(
       detection_fields.detection_classes) + label_id_offset
+  class_descriptions = postprocessed_tensors.get('class_descriptions')
   keypoints = postprocessed_tensors.get(detection_fields.detection_keypoints)
   masks = postprocessed_tensors.get(detection_fields.detection_masks)
   num_detections = postprocessed_tensors.get(detection_fields.num_detections)
@@ -221,6 +224,7 @@ def add_output_tensor_nodes(postprocessed_tensors,
       classes, name=detection_fields.detection_classes)
   outputs[detection_fields.num_detections] = tf.identity(
       num_detections, name=detection_fields.num_detections)
+  outputs['class_descriptions'] = tf.identity(class_descriptions, name='class_descriptions')
   if keypoints is not None:
     outputs[detection_fields.detection_keypoints] = tf.identity(
         keypoints, name=detection_fields.detection_keypoints)
@@ -254,11 +258,12 @@ def _write_saved_model(saved_model_path,
   saver = tf.train.Saver()
   with session.Session() as sess:
     saver.restore(sess, trained_checkpoint_prefix)
+    init_op = tf.group(tf.tables_initializer(), name='init_op')
 
     builder = tf.saved_model.builder.SavedModelBuilder(saved_model_path)
 
     tensor_info_inputs = {
-        'inputs': tf.saved_model.utils.build_tensor_info(inputs)}
+        'images': tf.saved_model.utils.build_tensor_info(inputs)}
     tensor_info_outputs = {}
     for k, v in outputs.items():
       tensor_info_outputs[k] = tf.saved_model.utils.build_tensor_info(v)
@@ -275,6 +280,7 @@ def _write_saved_model(saved_model_path,
             signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
                 detection_signature,
         },
+        legacy_init_op=init_op
     )
     builder.save()
 
@@ -336,6 +342,7 @@ def _build_detection_graph(input_type, detection_model, input_shape,
 def _export_inference_graph(input_type,
                             detection_model,
                             use_moving_averages,
+                            labelmap_path,
                             trained_checkpoint_prefix,
                             output_directory,
                             additional_output_tensor_names=None,
@@ -350,12 +357,41 @@ def _export_inference_graph(input_type,
   saved_model_path = os.path.join(output_directory, 'saved_model')
   model_path = os.path.join(output_directory, 'model.ckpt')
 
-  outputs, placeholder_tensor = _build_detection_graph(
-      input_type=input_type,
-      detection_model=detection_model,
-      input_shape=input_shape,
-      output_collection_name=output_collection_name,
-      graph_hook_fn=graph_hook_fn)
+  if input_type not in input_placeholder_fn_map:
+    raise ValueError('Unknown input type: {}'.format(input_type))
+  placeholder_args = {}
+  if input_shape is not None:
+    if input_type != 'image_tensor':
+      raise ValueError('Can only specify input shape for `image_tensor` '
+                       'inputs.')
+    placeholder_args['input_shape'] = input_shape
+  placeholder_tensor, input_tensors = input_placeholder_fn_map[input_type](
+      **placeholder_args)
+  inputs = tf.to_float(input_tensors)
+  preprocessed_inputs = detection_model.preprocess(inputs)
+  output_tensors = detection_model.predict(preprocessed_inputs)
+  postprocessed_tensors = detection_model.postprocess(output_tensors)
+
+  labelmap = get_label_map_dict(labelmap_path)
+  print(labelmap)
+
+  labels = [item[0].encode('utf-8') for item in sorted(labelmap.items(), key=operator.itemgetter(1))]
+  print(labels)
+
+  def _lookup_string_from_index(tf_indices, descriptions):
+      tf_class_descriptions = tf.constant(descriptions)
+      table = tf.contrib.lookup.index_to_string_table_from_tensor(
+          tf_class_descriptions, default_value="__UNKNOWN__")
+      return table.lookup(tf.to_int64(tf_indices))
+
+  class_descriptions = _lookup_string_from_index(postprocessed_tensors.get('detection_classes'), labels)
+  print(type(postprocessed_tensors))
+  postprocessed_tensors['class_descriptions'] = class_descriptions
+
+  outputs = _add_output_tensor_nodes(postprocessed_tensors,
+                                     output_collection_name)
+  # Add global step to the graph.
+  slim.get_or_create_global_step()
 
   profile_inference_graph(tf.get_default_graph())
   saver_kwargs = {}
@@ -445,6 +481,7 @@ def export_inference_graph(input_type,
       input_type,
       detection_model,
       pipeline_config.eval_config.use_moving_averages,
+      pipeline_config.eval_input_reader.label_map_path,
       trained_checkpoint_prefix,
       output_directory,
       additional_output_tensor_names,
