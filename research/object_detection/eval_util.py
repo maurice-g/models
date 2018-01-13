@@ -16,6 +16,7 @@
 import collections
 import os
 import time
+import re
 
 import numpy as np
 import tensorflow as tf
