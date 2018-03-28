@@ -372,20 +372,20 @@ def _export_inference_graph(input_type,
   output_tensors = detection_model.predict(preprocessed_inputs)
   postprocessed_tensors = detection_model.postprocess(output_tensors)
 
+  # add human readable labels to output
   labelmap = get_label_map_dict(labelmap_path)
-  print(labelmap)
 
   labels = [item[0].encode('utf-8') for item in sorted(labelmap.items(), key=operator.itemgetter(1))]
-  print(labels)
+  print('labels:',labels)
 
   def _lookup_string_from_index(tf_indices, descriptions):
+      # lookup utility for tensors
       tf_class_descriptions = tf.constant(descriptions)
       table = tf.contrib.lookup.index_to_string_table_from_tensor(
           tf_class_descriptions, default_value="__UNKNOWN__")
       return table.lookup(tf.to_int64(tf_indices))
 
   class_descriptions = _lookup_string_from_index(postprocessed_tensors.get('detection_classes'), labels)
-  print(type(postprocessed_tensors))
   postprocessed_tensors['class_descriptions'] = class_descriptions
 
   outputs = _add_output_tensor_nodes(postprocessed_tensors,
