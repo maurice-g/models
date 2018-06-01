@@ -50,5 +50,13 @@ The model will begin training and will automatically evaluate itself on the vali
 
 Note that there are a number of other options you can specify, including `--model_dir` to choose where to store the model and `--resnet_size` to choose the model size (options include ResNet-18 through ResNet-200). See [`resnet.py`](resnet.py) for the full list of options.
 
-### Pre-trained model
-You can download a 190 MB pre-trained version of ResNet-50 achieving 75.3% top-1 single-crop accuracy here: [resnet50_2017_11_30.tar.gz](http://download.tensorflow.org/models/official/resnet50_2017_11_30.tar.gz). Simply download and uncompress the file, and point the model to the extracted directory using the `--model_dir` flag.
+
+## Compute Devices
+Training is accomplished using the DistributionStrategies API. (https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/distribute/README.md)
+
+The appropriate distribution strategy is chosen based on the `--num_gpus` flag. By default this flag is one if TensorFlow is compiled with CUDA, and zero otherwise.
+
+num_gpus:
++ 0:  Use OneDeviceStrategy and train on CPU.
++ 1:  Use OneDeviceStrategy and train on GPU.
++ 2+: Use MirroredStrategy (data parallelism) to distribute a batch between devices.
