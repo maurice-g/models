@@ -1,1 +1,1 @@
-tensorflow/tensorflow:1.6.0-gpu
+tensorflow/tensorflow:1.7.0-gpu

@@ -7,7 +7,7 @@ TAGFILE=${1:-imagetag_gpu.txt}
 IMAGE_TAG=$(cat $TAGFILE)
 
 EFS_VOLUME_R3PI=fs-6223c33b
-NVIDIA_DRIVER=nvidia_driver_367.44
+NVIDIA_DRIVER=nvidia_driver_396.26
 
 docker volume inspect $NVIDIA_DRIVER > /dev/null
 docker run -it \
