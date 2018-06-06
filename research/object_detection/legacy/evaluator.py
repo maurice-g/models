@@ -45,7 +45,9 @@ EVAL_METRICS_CLASS_DICT = {
     'open_images_V2_detection_metrics':
         object_detection_evaluation.OpenImagesDetectionEvaluator,
     'coco_detection_metrics':
-        coco_evaluation.CocoDetectionEvaluator,
+        coco_evaluation.CocoDetectionEvaluatorStandard,
+    'coco_detection_metrics_custom':
+        coco_evaluation.CocoDetectionEvaluatorCustom,
     'coco_mask_metrics':
         coco_evaluation.CocoMaskEvaluator,
     'oid_challenge_detection_metrics':

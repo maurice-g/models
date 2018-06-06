@@ -29,9 +29,13 @@ from object_detection.builders import graph_rewriter_builder
 from object_detection.builders import model_builder
 from object_detection.core import standard_fields as fields
 from object_detection.data_decoders import tf_example_decoder
+<<<<<<< HEAD
 from object_detection.utils import config_util
 from object_detection.utils import shape_utils
 from object_detection.utils.label_map_util import get_label_map_dict, load_labelmap
+=======
+from object_detection.exporter_customizations import add_human_readable_labels
+>>>>>>> (feature) integrated custom metrics and export signature
 
 slim = tf.contrib.slim
 
@@ -215,6 +219,7 @@ def add_output_tensor_nodes(postprocessed_tensors,
   keypoints = postprocessed_tensors.get(detection_fields.detection_keypoints)
   masks = postprocessed_tensors.get(detection_fields.detection_masks)
   num_detections = postprocessed_tensors.get(detection_fields.num_detections)
+  class_descriptions = postprocessed_tensors.get(detection_fields.class_descriptions)
   outputs = {}
   outputs[detection_fields.detection_boxes] = tf.identity(
       boxes, name=detection_fields.detection_boxes)
@@ -224,7 +229,12 @@ def add_output_tensor_nodes(postprocessed_tensors,
       classes, name=detection_fields.detection_classes)
   outputs[detection_fields.num_detections] = tf.identity(
       num_detections, name=detection_fields.num_detections)
+<<<<<<< HEAD
   outputs['class_descriptions'] = tf.identity(class_descriptions, name='class_descriptions')
+=======
+  outputs[detection_fields.class_descriptions] = tf.identity(
+      class_descriptions, name=detection_fields.class_descriptions)
+>>>>>>> (feature) integrated custom metrics and export signature
   if keypoints is not None:
     outputs[detection_fields.detection_keypoints] = tf.identity(
         keypoints, name=detection_fields.detection_keypoints)
@@ -302,19 +312,21 @@ def write_graph_and_checkpoint(inference_graph_def,
 
 
 def _get_outputs_from_inputs(input_tensors, detection_model,
-                             output_collection_name):
+                             output_collection_name, labelmap_path):
   inputs = tf.to_float(input_tensors)
   preprocessed_inputs, true_image_shapes = detection_model.preprocess(inputs)
   output_tensors = detection_model.predict(
       preprocessed_inputs, true_image_shapes)
   postprocessed_tensors = detection_model.postprocess(
       output_tensors, true_image_shapes)
-  return add_output_tensor_nodes(postprocessed_tensors,
-                                 output_collection_name)
+  # add labels tensor
+  postprocessed_tensors = add_human_readable_labels(postprocessed_tensors, labelmap_path)
+  return _add_output_tensor_nodes(postprocessed_tensors,
+                                  output_collection_name)
 
 
 def _build_detection_graph(input_type, detection_model, input_shape,
-                           output_collection_name, graph_hook_fn):
+                           output_collection_name, graph_hook_fn, labelmap_path):
   """Build the detection graph."""
   if input_type not in input_placeholder_fn_map:
     raise ValueError('Unknown input type: {}'.format(input_type))
@@ -329,7 +341,8 @@ def _build_detection_graph(input_type, detection_model, input_shape,
   outputs = _get_outputs_from_inputs(
       input_tensors=input_tensors,
       detection_model=detection_model,
-      output_collection_name=output_collection_name)
+      output_collection_name=output_collection_name,
+      labelmap_path=labelmap_path)
 
   # Add global step to the graph.
   slim.get_or_create_global_step()
@@ -357,39 +370,14 @@ def _export_inference_graph(input_type,
   saved_model_path = os.path.join(output_directory, 'saved_model')
   model_path = os.path.join(output_directory, 'model.ckpt')
 
-  if input_type not in input_placeholder_fn_map:
-    raise ValueError('Unknown input type: {}'.format(input_type))
-  placeholder_args = {}
-  if input_shape is not None:
-    if input_type != 'image_tensor':
-      raise ValueError('Can only specify input shape for `image_tensor` '
-                       'inputs.')
-    placeholder_args['input_shape'] = input_shape
-  placeholder_tensor, input_tensors = input_placeholder_fn_map[input_type](
-      **placeholder_args)
-  inputs = tf.to_float(input_tensors)
-  preprocessed_inputs = detection_model.preprocess(inputs)
-  output_tensors = detection_model.predict(preprocessed_inputs)
-  postprocessed_tensors = detection_model.postprocess(output_tensors)
+  outputs, placeholder_tensor = _build_detection_graph(
+      input_type=input_type,
+      detection_model=detection_model,
+      input_shape=input_shape,
+      output_collection_name=output_collection_name,
+      graph_hook_fn=graph_hook_fn,
+      labelmap_path=labelmap_path)
 
-  # add human readable labels to output
-  labelmap = get_label_map_dict(labelmap_path)
-
-  labels = [item[0].encode('utf-8') for item in sorted(labelmap.items(), key=operator.itemgetter(1))]
-  print('labels:',labels)
-
-  def _lookup_string_from_index(tf_indices, descriptions):
-      # lookup utility for tensors
-      tf_class_descriptions = tf.constant(descriptions)
-      table = tf.contrib.lookup.index_to_string_table_from_tensor(
-          tf_class_descriptions, default_value="__UNKNOWN__")
-      return table.lookup(tf.to_int64(tf_indices))
-
-  class_descriptions = _lookup_string_from_index(postprocessed_tensors.get('detection_classes'), labels)
-  postprocessed_tensors['class_descriptions'] = class_descriptions
-
-  outputs = _add_output_tensor_nodes(postprocessed_tensors,
-                                     output_collection_name)
   # Add global step to the graph.
   slim.get_or_create_global_step()
 
@@ -441,9 +429,9 @@ def _export_inference_graph(input_type,
       output_graph=frozen_graph_path,
       clear_devices=True,
       initializer_nodes='')
-  _write_frozen_graph(frozen_graph_path, frozen_graph_def)
-  _write_saved_model(saved_model_path, trained_checkpoint_prefix,
-                     placeholder_tensor, outputs)
+  write_frozen_graph(frozen_graph_path, frozen_graph_def)
+  _write_saved_model(saved_model_path, checkpoint_to_use,
+                    placeholder_tensor, outputs)
 
 
 def export_inference_graph(input_type,

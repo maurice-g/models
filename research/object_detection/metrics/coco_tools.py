@@ -151,7 +151,7 @@ class COCOEvalWrapper(cocoeval.COCOeval):
   """
 
   def __init__(self, groundtruth=None, detections=None, agnostic_mode=False,
-               iou_type='bbox'):
+               iou_type='bbox', iouThresholds='standard'):
     """COCOEvalWrapper constructor.
 
     Note that for the area-based metrics to be meaningful, detection and
@@ -167,7 +167,7 @@ class COCOEvalWrapper(cocoeval.COCOeval):
       iou_type: IOU type to use for evaluation. Supports `bbox` or `segm`.
     """
     cocoeval.COCOeval.__init__(self, groundtruth, detections,
-                               iouType=iou_type)
+                               iouType=iou_type, iouThresholds=iouThresholds)
     if agnostic_mode:
       self.params.useCats = 0
 
