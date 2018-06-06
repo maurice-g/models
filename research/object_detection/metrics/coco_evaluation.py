@@ -20,14 +20,14 @@ from object_detection.core import standard_fields
 from object_detection.metrics import coco_tools
 from object_detection.utils import object_detection_evaluation
 
-
 class CocoDetectionEvaluator(object_detection_evaluation.DetectionEvaluator):
   """Class to evaluate COCO detection metrics."""
 
   def __init__(self,
                categories,
                include_metrics_per_category=False,
-               all_metrics_per_category=False):
+               all_metrics_per_category=False,
+               iouThresholds='standard'):
     """Constructor.
 
     Args:
@@ -51,6 +51,7 @@ class CocoDetectionEvaluator(object_detection_evaluation.DetectionEvaluator):
     self._metrics = None
     self._include_metrics_per_category = include_metrics_per_category
     self._all_metrics_per_category = all_metrics_per_category
+    self.iouThresholds = iouThresholds
 
   def clear(self):
     """Clears the state to prepare for a fresh evaluation."""
@@ -192,7 +193,8 @@ class CocoDetectionEvaluator(object_detection_evaluation.DetectionEvaluator):
     coco_wrapped_detections = coco_wrapped_groundtruth.LoadAnnotations(
         self._detection_boxes_list)
     box_evaluator = coco_tools.COCOEvalWrapper(
-        coco_wrapped_groundtruth, coco_wrapped_detections, agnostic_mode=False)
+        coco_wrapped_groundtruth, coco_wrapped_detections, agnostic_mode=False, 
+        iouThresholds=self.iouThresholds)
     box_metrics, box_per_category_ap = box_evaluator.ComputeMetrics(
         include_metrics_per_category=self._include_metrics_per_category,
         all_metrics_per_category=self._all_metrics_per_category)
@@ -364,6 +366,29 @@ def _check_mask_type_and_value(array_name, masks):
     raise ValueError('{} elements can only be either 0 or 1.'.format(
         array_name))
 
+class CocoDetectionEvaluatorStandard(CocoDetectionEvaluator):
+  def __init__(self,
+               categories,
+               include_metrics_per_category=False,
+               all_metrics_per_category=False,
+               iouThresholds='standard'):
+    super(CocoDetectionEvaluatorStandard, self).__init__(categories,
+               include_metrics_per_category=include_metrics_per_category,
+               all_metrics_per_category=all_metrics_per_category,
+               iouThresholds=iouThresholds
+            )
+
+class CocoDetectionEvaluatorCustom(CocoDetectionEvaluator):
+  def __init__(self,
+               categories,
+               include_metrics_per_category=False,
+               all_metrics_per_category=False,
+               iouThresholds='custom'):
+    super(CocoDetectionEvaluatorCustom, self).__init__(categories,
+               include_metrics_per_category=include_metrics_per_category,
+               all_metrics_per_category=all_metrics_per_category,
+               iouThresholds=iouThresholds
+            )
 
 class CocoMaskEvaluator(object_detection_evaluation.DetectionEvaluator):
   """Class to evaluate COCO detection metrics."""

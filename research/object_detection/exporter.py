@@ -29,6 +29,7 @@ from tensorflow.python.training import saver as saver_lib
 from object_detection.builders import model_builder
 from object_detection.core import standard_fields as fields
 from object_detection.data_decoders import tf_example_decoder
+from object_detection.exporter_customizations import add_human_readable_labels
 
 slim = tf.contrib.slim
 
@@ -226,6 +227,7 @@ def _add_output_tensor_nodes(postprocessed_tensors,
   keypoints = postprocessed_tensors.get(detection_fields.detection_keypoints)
   masks = postprocessed_tensors.get(detection_fields.detection_masks)
   num_detections = postprocessed_tensors.get(detection_fields.num_detections)
+  class_descriptions = postprocessed_tensors.get(detection_fields.class_descriptions) 
   outputs = {}
   outputs[detection_fields.detection_boxes] = tf.identity(
       boxes, name=detection_fields.detection_boxes)
@@ -235,6 +237,8 @@ def _add_output_tensor_nodes(postprocessed_tensors,
       classes, name=detection_fields.detection_classes)
   outputs[detection_fields.num_detections] = tf.identity(
       num_detections, name=detection_fields.num_detections)
+  outputs[detection_fields.class_descriptions] = tf.identity(
+      class_descriptions, name=detection_fields.class_descriptions)
   if keypoints is not None:
     outputs[detection_fields.detection_keypoints] = tf.identity(
         keypoints, name=detection_fields.detection_keypoints)
@@ -262,7 +266,7 @@ def write_frozen_graph(frozen_graph_path, frozen_graph_def):
 
 
 def write_saved_model(saved_model_path,
-                      frozen_graph_def,
+                      trained_checkpoint_prefix,
                       inputs,
                       outputs):
   """Writes SavedModel to disk.
@@ -279,33 +283,35 @@ def write_saved_model(saved_model_path,
     inputs: The input image tensor to use for detection.
     outputs: A tensor dictionary containing the outputs of a DetectionModel.
   """
-  with tf.Graph().as_default():
-    with session.Session() as sess:
+  saver = tf.train.Saver()
+  with session.Session() as sess:
 
-      tf.import_graph_def(frozen_graph_def, name='')
+    saver.restore(sess, trained_checkpoint_prefix)
+    init_op = tf.group(tf.tables_initializer(), name='init_op')
+    
+    builder = tf.saved_model.builder.SavedModelBuilder(saved_model_path)
 
-      builder = tf.saved_model.builder.SavedModelBuilder(saved_model_path)
+    tensor_info_inputs = {
+        'images': tf.saved_model.utils.build_tensor_info(inputs)}
+    tensor_info_outputs = {}
+    for k, v in outputs.items():
+      tensor_info_outputs[k] = tf.saved_model.utils.build_tensor_info(v)
 
-      tensor_info_inputs = {
-          'inputs': tf.saved_model.utils.build_tensor_info(inputs)}
-      tensor_info_outputs = {}
-      for k, v in outputs.items():
-        tensor_info_outputs[k] = tf.saved_model.utils.build_tensor_info(v)
+    detection_signature = (
+        tf.saved_model.signature_def_utils.build_signature_def(
+            inputs=tensor_info_inputs,
+            outputs=tensor_info_outputs,
+            method_name=signature_constants.PREDICT_METHOD_NAME))
 
-      detection_signature = (
-          tf.saved_model.signature_def_utils.build_signature_def(
-              inputs=tensor_info_inputs,
-              outputs=tensor_info_outputs,
-              method_name=signature_constants.PREDICT_METHOD_NAME))
-
-      builder.add_meta_graph_and_variables(
-          sess, [tf.saved_model.tag_constants.SERVING],
-          signature_def_map={
-              signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-                  detection_signature,
-          },
-      )
-      builder.save()
+    builder.add_meta_graph_and_variables(
+        sess, [tf.saved_model.tag_constants.SERVING],
+        signature_def_map={
+            signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                detection_signature,
+        },
+        legacy_init_op=init_op
+    )
+    builder.save()
 
 
 def write_graph_and_checkpoint(inference_graph_def,
@@ -325,19 +331,21 @@ def write_graph_and_checkpoint(inference_graph_def,
 
 
 def _get_outputs_from_inputs(input_tensors, detection_model,
-                             output_collection_name):
+                             output_collection_name, labelmap_path):
   inputs = tf.to_float(input_tensors)
   preprocessed_inputs, true_image_shapes = detection_model.preprocess(inputs)
   output_tensors = detection_model.predict(
       preprocessed_inputs, true_image_shapes)
   postprocessed_tensors = detection_model.postprocess(
       output_tensors, true_image_shapes)
+  # add labels tensor
+  postprocessed_tensors = add_human_readable_labels(postprocessed_tensors, labelmap_path)
   return _add_output_tensor_nodes(postprocessed_tensors,
                                   output_collection_name)
 
 
 def _build_detection_graph(input_type, detection_model, input_shape,
-                           output_collection_name, graph_hook_fn):
+                           output_collection_name, graph_hook_fn, labelmap_path):
   """Build the detection graph."""
   if input_type not in input_placeholder_fn_map:
     raise ValueError('Unknown input type: {}'.format(input_type))
@@ -352,7 +360,8 @@ def _build_detection_graph(input_type, detection_model, input_shape,
   outputs = _get_outputs_from_inputs(
       input_tensors=input_tensors,
       detection_model=detection_model,
-      output_collection_name=output_collection_name)
+      output_collection_name=output_collection_name,
+      labelmap_path=labelmap_path)
 
   # Add global step to the graph.
   slim.get_or_create_global_step()
@@ -365,6 +374,7 @@ def _build_detection_graph(input_type, detection_model, input_shape,
 def _export_inference_graph(input_type,
                             detection_model,
                             use_moving_averages,
+                            labelmap_path,
                             trained_checkpoint_prefix,
                             output_directory,
                             additional_output_tensor_names=None,
@@ -383,7 +393,8 @@ def _export_inference_graph(input_type,
       detection_model=detection_model,
       input_shape=input_shape,
       output_collection_name=output_collection_name,
-      graph_hook_fn=graph_hook_fn)
+      graph_hook_fn=graph_hook_fn,
+      labelmap_path=labelmap_path)
 
   saver_kwargs = {}
   if use_moving_averages:
@@ -424,7 +435,7 @@ def _export_inference_graph(input_type,
       clear_devices=True,
       initializer_nodes='')
   write_frozen_graph(frozen_graph_path, frozen_graph_def)
-  write_saved_model(saved_model_path, frozen_graph_def,
+  write_saved_model(saved_model_path, checkpoint_to_use,
                     placeholder_tensor, outputs)
 
 
@@ -454,6 +465,7 @@ def export_inference_graph(input_type,
                                         is_training=False)
   _export_inference_graph(input_type, detection_model,
                           pipeline_config.eval_config.use_moving_averages,
+                          pipeline_config.eval_input_reader.label_map_path,
                           trained_checkpoint_prefix,
                           output_directory, additional_output_tensor_names,
                           input_shape, output_collection_name,

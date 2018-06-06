@@ -117,6 +117,7 @@ class DetectionResultFields(object):
   detection_boundaries = 'detection_boundaries'
   detection_keypoints = 'detection_keypoints'
   num_detections = 'num_detections'
+  class_descriptions = 'class_descriptions'
 
 
 class BoxListFields(object):
