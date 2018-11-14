@@ -29,13 +29,10 @@ from object_detection.builders import graph_rewriter_builder
 from object_detection.builders import model_builder
 from object_detection.core import standard_fields as fields
 from object_detection.data_decoders import tf_example_decoder
-<<<<<<< HEAD
 from object_detection.utils import config_util
 from object_detection.utils import shape_utils
 from object_detection.utils.label_map_util import get_label_map_dict, load_labelmap
-=======
 from object_detection.exporter_customizations import add_human_readable_labels
->>>>>>> (feature) integrated custom metrics and export signature
 
 slim = tf.contrib.slim
 
@@ -215,7 +212,6 @@ def add_output_tensor_nodes(postprocessed_tensors,
   scores = postprocessed_tensors.get(detection_fields.detection_scores)
   classes = postprocessed_tensors.get(
       detection_fields.detection_classes) + label_id_offset
-  class_descriptions = postprocessed_tensors.get('class_descriptions')
   keypoints = postprocessed_tensors.get(detection_fields.detection_keypoints)
   masks = postprocessed_tensors.get(detection_fields.detection_masks)
   num_detections = postprocessed_tensors.get(detection_fields.num_detections)
@@ -229,12 +225,8 @@ def add_output_tensor_nodes(postprocessed_tensors,
       classes, name=detection_fields.detection_classes)
   outputs[detection_fields.num_detections] = tf.identity(
       num_detections, name=detection_fields.num_detections)
-<<<<<<< HEAD
-  outputs['class_descriptions'] = tf.identity(class_descriptions, name='class_descriptions')
-=======
   outputs[detection_fields.class_descriptions] = tf.identity(
       class_descriptions, name=detection_fields.class_descriptions)
->>>>>>> (feature) integrated custom metrics and export signature
   if keypoints is not None:
     outputs[detection_fields.detection_keypoints] = tf.identity(
         keypoints, name=detection_fields.detection_keypoints)
