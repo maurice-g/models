@@ -15,6 +15,8 @@
 """Class for evaluating object detections with COCO metrics."""
 import numpy as np
 import tensorflow as tf
+from sklearn.metrics import roc_auc_score, classification_report, balanced_accuracy_score, accuracy_score
+from sklearn.preprocessing import MultiLabelBinarizer
 
 from object_detection.core import standard_fields
 from object_detection.metrics import coco_tools
@@ -201,6 +203,36 @@ class CocoDetectionEvaluator(object_detection_evaluation.DetectionEvaluator):
     box_metrics.update(box_per_category_ap)
     box_metrics = {'DetectionBoxes_'+ key: value
                    for key, value in iter(box_metrics.items())}
+    print(box_metrics) 
+    y_true = {image_id: [] for image_id in [label['image_id'] for label in self._groundtruth_list]}
+    for label in self._groundtruth_list:
+        y_true[label['image_id']].append(label['category_id'])
+    image_ids = np.array(sorted(y_true.keys()))
+    y_true = [y_true[image_id] for image_id in image_ids] 
+    labelbinarizer = MultiLabelBinarizer()
+    y_true = labelbinarizer.fit_transform(y_true)
+    y_pred = np.zeros(y_true.shape)
+    for row in self._detection_boxes_list:
+        # find image index in groundtruth
+        i = np.where(image_ids == row['image_id'])[0]
+        j = np.where(np.array(labelbinarizer.classes_) == row['category_id'])[0]
+        if row['score'] > y_pred[i,j]:
+            y_pred[i,j] = row['score']
+    roc_auc = roc_auc_score(y_true, y_pred, average='macro')
+    print('ROC AUC (macro): ',roc_auc)
+    class_names = [cat['name'] for cat in self._categories]
+    print(class_names)
+    # threshold predictions
+    y_pred = (y_pred >= 0.5).astype(np.int)
+    class_report = classification_report(y_true, y_pred, target_names=class_names)
+    print(class_report)
+    acc_scores = {}
+    for i, label in enumerate(class_names):
+        acc_scores['ImageLevel/BALANCED_ACC_{}'.format(label)] = balanced_accuracy_score(y_true[:,i],y_pred[:,i])
+        acc_scores['ImageLevel/ACC_{}'.format(label)] = accuracy_score(y_true[:,i],y_pred[:,i])
+    print(acc_scores)
+    box_metrics.update(acc_scores)
+    box_metrics['ImageLevel/ROC_AUC_MACRO'] = roc_auc
     return box_metrics
 
   def get_estimator_eval_metric_ops(self, image_id, groundtruth_boxes,
@@ -331,7 +363,8 @@ class CocoDetectionEvaluator(object_detection_evaluation.DetectionEvaluator):
                     'DetectionBoxes_Recall/AR@100',
                     'DetectionBoxes_Recall/AR@100 (large)',
                     'DetectionBoxes_Recall/AR@100 (medium)',
-                    'DetectionBoxes_Recall/AR@100 (small)']
+                    'DetectionBoxes_Recall/AR@100 (small)',
+                    'ImageLevel/ROC_AUC_MACRO']
     if self._include_metrics_per_category:
       for category_dict in self._categories:
         metric_names.append('DetectionBoxes_PerformanceByCategory/mAP/' +
