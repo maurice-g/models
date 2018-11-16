@@ -2010,7 +2010,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
         # Use normalized proposals to crop mask targets from image masks.
         flat_normalized_proposals = box_list_ops.to_normalized_coordinates(
             box_list.BoxList(tf.reshape(proposal_boxes, [-1, 4])),
-            image_shape[1], image_shape[2]).get()
+            image_shape[1], image_shape[2], check_range=False).get()
 
         flat_cropped_gt_mask = self._crop_and_resize_fn(
             tf.expand_dims(flat_gt_masks, -1),
