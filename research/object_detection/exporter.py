@@ -31,7 +31,6 @@ from object_detection.core import standard_fields as fields
 from object_detection.data_decoders import tf_example_decoder
 from object_detection.utils import config_util
 from object_detection.utils import shape_utils
-from object_detection.utils.label_map_util import get_label_map_dict, load_labelmap
 from object_detection.exporter_customizations import add_human_readable_labels
 
 slim = tf.contrib.slim
@@ -172,7 +171,7 @@ input_placeholder_fn_map = {
 }
 
 
-def add_output_tensor_nodes(postprocessed_tensors,
+def _add_output_tensor_nodes(postprocessed_tensors,
                             output_collection_name='inference_op'):
   """Adds output nodes for detection boxes and scores.
 
@@ -421,7 +420,6 @@ def _export_inference_graph(input_type,
       output_graph=frozen_graph_path,
       clear_devices=True,
       initializer_nodes='')
-  write_frozen_graph(frozen_graph_path, frozen_graph_def)
   _write_saved_model(saved_model_path, checkpoint_to_use,
                     placeholder_tensor, outputs)
 
@@ -461,7 +459,7 @@ def export_inference_graph(input_type,
       input_type,
       detection_model,
       pipeline_config.eval_config.use_moving_averages,
-      pipeline_config.eval_input_reader.label_map_path,
+      pipeline_config.eval_input_reader[0].label_map_path,
       trained_checkpoint_prefix,
       output_directory,
       additional_output_tensor_names,
